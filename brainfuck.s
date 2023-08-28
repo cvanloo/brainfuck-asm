@@ -4,10 +4,20 @@
 CHUNK_SIZE = 512
 
 _start:
+# *** SETUP STACK ***
     movq %rsp, %rbp
     subq  $16, %rsp
     # rbp-0 = input ptr
     # rbp-8 = input len
+
+# *** ASK FOR USER INPUT ***
+
+    # write(stdout, "Input program > ", len(...))
+    movq                 $1, %rax
+    movq                 $1, %rdi
+    movq     $ask_for_input, %rsi
+    movq $ask_for_input_len, %rdx
+    syscall
 
 # *** READ USER INPUT ***
 
@@ -68,3 +78,6 @@ read_input_end:
     syscall
 
     .data
+
+ask_for_input: .ascii "Input program > "
+ask_for_input_len = . - ask_for_input
