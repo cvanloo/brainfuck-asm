@@ -12,9 +12,9 @@ _start:
 # *** SETUP STACK ***
     movq %rsp, %rbp
     subq $124, %rsp
-    #   rbp-8 = program ptr (null terminated)
-    #  rbp-16 = program len, then loop mapping ptr
-    #  rbp-24 = input ptr (null terminated)
+    #   rbp-8 = program ptr (null terminated str)
+    #  rbp-16 = loop mapping ptr
+    #  rbp-24 = input ptr (null terminated str)
     # rbp-124 = registers for brainfuck program
 
     movq %rsi, -24(%rbp) # save pointer to user input on stack
@@ -71,14 +71,12 @@ read_input:
 
 read_input_end:
 
-    movq  %r12, -8(%rbp)  # program ptr
-    movq  %r13, -16(%rbp) # program len
-
-    movq $0, (%r12,%r13,1) # null-terminate program
+    movq %r12, -8(%rbp)      # program ptr
+    movq   $0, (%r12,%r13,1) # null-terminate program
 
 # *** PRE-PROCESS LOOPS ***
 
-    # stack space needed:   program len * 8 for loop mapping
+    # stack space needed:   program len * 8     for loop mapping
     #                     + program len / 2 * 8 for temporary loop stack
     #   multiply by 8 because *one* pointer is 8 bytes!
     movq %r13, %r8
@@ -89,19 +87,18 @@ read_input_end:
     addq  %r8, %rax
     subq %rax, %rsp # extend stack frame
 
-    # rbp-124-prog_len*8       = loop mapping
-    # rbp-124-prog_len*8-r13*4 = loop stack
+    # rbp-124-prog_len*8            = loop mapping
+    # rbp-124-prog_len*8-prog_len*4 = loop stack
     # also:
-    # rbp-124-r8       = loop mapping
-    # rbp-124-r8-r13*4 = loop stack
+    # rbp-124-r8             = loop mapping
+    # rbp-124-r8-r13*4 = rsp = loop stack
 
     movq %r12, %rax # rax = ptr to current program char
 
     leaq -124(%rbp), %rdx
     subq        %r8, %rdx
     movq       %rdx, %rsi # rsi = ptr to loop mapping
-    shrq         $1, %r8
-    subq        %r8, %rdx # rdx = ptr to top of loop stack
+    movq       %rsp, %rdx # rdx = ptr to top of loop stack
 
     movq %rsi, -16(%rbp)  # save pointer to loop mapping on stack
 
@@ -191,10 +188,10 @@ cond_start:
     testb   %al, %al
     jne interpret_instruction_next
 
-    lea -8(%rbp), %rax
-    movq    %r11, %rdi
-    subq    %rax, %rdi           # rdi = index into loop mapping
-    movq   (%r15, %rdi, 8), %r11 # set pc to cond end
+    movq -8(%rbp), %rax
+    leaq   (%r11), %rdi
+    subq     %rax, %rdi           # rdi = index into loop mapping
+    movq    (%r15, %rdi, 8), %r11 # set pc to cond end
 
     jmp interpret_instruction_next
 
@@ -216,7 +213,8 @@ io_in:
     testb   %al, %al
     jnz io_in_set
 
-    movb $-1, (%r14)
+    #movb $-1, (%r14)
+    movb $0, (%r14)
     jmp interpret_instruction_next
 
 io_in_set:
