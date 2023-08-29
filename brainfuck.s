@@ -4,11 +4,20 @@
 CHUNK_SIZE = 512
 
 _start:
+# *** GET COMMAND LINE ARGUMENTS ***
+    movq   (%rsp), %rax # argc
+    #movq  8(%rsp), %rdi # argv[0]
+    movq 16(%rsp), %rsi # argv[1]
+
 # *** SETUP STACK ***
     movq %rsp, %rbp
-    subq  $16, %rsp
-    # rbp-0 = input ptr
-    # rbp-8 = input len
+    subq $124, %rsp
+    #  rbp-0 = program ptr (null terminated)
+    #  rbp-8 = program len
+    # rbp-16 = input ptr (null terminated)
+    # rbp-24 = registers for brainfuck program
+
+    movq %rsi, -16(%rbp)
 
 # *** ASK FOR USER INPUT ***
 
@@ -43,10 +52,10 @@ read_input:
     movq $CHUNK_SIZE, %rdx
     syscall
 
-    addq %rax, %r13 # update amount of bytes read
+    testq %rax, %rax
+    jz read_input_end
 
-    cmpq $CHUNK_SIZE, %rax
-    jl read_input_end
+    addq %rax, %r13 # update amount of bytes read
 
     # mremap(buf, old len, new len, flags=MAYMOVE) -- allocate another chunk
     movq         $25, %rax
@@ -62,8 +71,10 @@ read_input:
 
 read_input_end:
 
-    movq  %r12, (%rbp)   # input ptr
-    movq  %r13, -8(%rbp) # input len
+    movq  %r12, (%rbp)   # program ptr
+    movq  %r13, -8(%rbp) # program len
+
+    movq $0, (%r12,%r13,1) # null-terminate program
 
 # *** PRE-PROCESS LOOPS ***
 
@@ -73,15 +84,15 @@ read_input_end:
     shlq   $2, %rax # / 2 * 8 <=> * 4
     addq %r13, %rax
     subq %rax, %rsp
-    # rbp-16     = loop mapping
-    # rbp-16-r13 = loop stack
+    # rbp-124     = loop mapping
+    # rbp-124-r13 = loop stack
 
     movq %r12, %rax # rax = ptr to current input char
     movq %r13, %rdi # rdi = number of iterations left
 
-    leaq -16(%rbp), %rdx
-    movq      %rdx, %rsi # rsi = ptr to loop mapping
-    subq      %r13, %rdx # rdx = ptr to top of loop stack
+    leaq -124(%rbp), %rdx
+    movq       %rdx, %rsi # rsi = ptr to loop mapping
+    subq       %r13, %rdx # rdx = ptr to top of loop stack
 
 preprocess_loops:
     movq (%rax), %r8
@@ -122,6 +133,108 @@ preprocess_loops_next:
     testq %rdi, %rdi
     jnz preprocess_loops
 
+# *** INTERPRET BRAINFUCK CODE ***
+
+    movq     (%rbp), %r11 # pc
+    #movq   -8(%rbp), %r12 # program len
+    movq  -16(%rbp), %r13 # input str
+    leaq  -24(%rbp), %r14 # registers
+    leaq -124(%rbp), %r15 # loop mapping
+
+interpret_instruction:
+    mov (%r11), %rax
+    cmpb $'+, %al
+    je val_inc
+    cmpb $'-, %al
+    je val_dec
+    cmpb $'>, %al
+    je ptr_inc
+    cmpb $'<, %al
+    je ptr_dec
+    cmpb $'[, %al
+    je cond_start
+    cmpb $'], %al
+    je cond_end
+    cmpb $',, %al
+    je io_in
+    cmpb $'., %al
+    je io_out
+    jmp interpret_instruction_next # anything else counts as comments
+
+ptr_inc:
+    incq %r14
+    jmp interpret_instruction_next
+
+ptr_dec:
+    decq %r14
+    jmp interpret_instruction_next
+
+val_inc:
+    incb (%r14)
+    jmp interpret_instruction_next
+
+val_dec:
+    decb (%r14)
+    jmp interpret_instruction_next
+
+cond_start:
+    # jump if (%r14) == 0
+    movq (%r14), %rax
+    testb %al, %al
+    jnz interpret_instruction_next
+
+    lea (%rbp), %rax
+    movq  %r11, %rdi
+    subq  %rax, %rdi           # rdi = index into loop mapping
+    movq (%r15, %rdi, 1), %r11 # set pc to cond end
+
+    jmp interpret_instruction_next
+
+cond_end:
+    # jump if (%r14) != 0
+    movq (%r14), %rax
+    testb %al, %al
+    jz interpret_instruction_next
+
+    movq (%rbp), %rax
+    leaq (%r11), %rdi
+    subq   %rax, %rdi           # rdi = index into loop mapping
+    movq  (%r15, %rdi, 1), %r11 # set pc to cond start
+
+    jmp interpret_instruction_next
+
+io_in:
+    movq (%r13), %rax
+    testb %al, %al
+    jnz io_in_set
+
+    movb $-1, (%r14)
+    jmp interpret_instruction_next
+
+io_in_set:
+    movb %al, (%r14)
+    incq %r13
+
+    jmp interpret_instruction_next
+
+io_out:
+    pushq %r11
+    # write(stdout, register, count=1)
+    movq   $1, %rax
+    movq   $1, %rdi
+    movq %r14, %rsi
+    movq   $1, %rdx
+    syscall
+
+    popq %r11
+
+    # fallthrough into interpret_instruction_next
+
+interpret_instruction_next:
+    incq   %r11
+    movq (%r11), %rax
+    testb   %al, %al
+    jnz interpret_instruction
 
     # exit(0)
     movq $60, %rax
