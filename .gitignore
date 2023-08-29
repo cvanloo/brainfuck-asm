@@ -2,5 +2,6 @@
 a.out
 bf.o
 input
+input_loop
 output
 peda-session-a.out.txt
