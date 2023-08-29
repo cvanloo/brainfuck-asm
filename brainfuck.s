@@ -12,12 +12,12 @@ _start:
 # *** SETUP STACK ***
     movq %rsp, %rbp
     subq $124, %rsp
-    #  rbp-0 = program ptr (null terminated)
-    #  rbp-8 = program len
-    # rbp-16 = input ptr (null terminated)
-    # rbp-24 = registers for brainfuck program
+    #   rbp-8 = program ptr (null terminated)
+    #  rbp-16 = program len, then loop mapping ptr
+    #  rbp-24 = input ptr (null terminated)
+    # rbp-124 = registers for brainfuck program
 
-    movq %rsi, -16(%rbp)
+    movq %rsi, -24(%rbp) # save pointer to user input on stack
 
 # *** ASK FOR USER INPUT ***
 
@@ -71,8 +71,8 @@ read_input:
 
 read_input_end:
 
-    movq  %r12, (%rbp)   # program ptr
-    movq  %r13, -8(%rbp) # program len
+    movq  %r12, -8(%rbp)  # program ptr
+    movq  %r13, -16(%rbp) # program len
 
     movq $0, (%r12,%r13,1) # null-terminate program
 
@@ -84,19 +84,26 @@ read_input_end:
     movq %r13, %r8
     shlq   $3, %r8 # r8 = program len * 8
 
-    movq %r8, %rax
-    shrq  $1, %rax # / 2
-    addq %r8, %rax
+    movq  %r8, %rax
+    shrq   $1, %rax # / 2
+    addq  %r8, %rax
+    subq %rax, %rsp # extend stack frame
 
-    # rbp-124       = loop mapping
-    # rbp-124-r13*8 = loop stack
+    # rbp-124-prog_len*8       = loop mapping
+    # rbp-124-prog_len*8-r13*4 = loop stack
+    # also:
+    # rbp-124-r8       = loop mapping
+    # rbp-124-r8-r13*4 = loop stack
 
-    movq %r12, %rax # rax = ptr to current input char
-    movq %r13, %rdi # rdi = number of iterations left
+    movq %r12, %rax # rax = ptr to current program char
 
     leaq -124(%rbp), %rdx
+    subq        %r8, %rdx
     movq       %rdx, %rsi # rsi = ptr to loop mapping
+    shrq         $1, %r8
     subq        %r8, %rdx # rdx = ptr to top of loop stack
+
+    movq %rsi, -16(%rbp)  # save pointer to loop mapping on stack
 
 preprocess_loops:
     movq (%rax), %r8
@@ -123,25 +130,24 @@ create_loop_mapping:
     movq  %r8, (%rsi, %r9, 8)
 
     # map start -> end
-    movq   %r8, %r9
-    subq  %r12, %r9
+    movq  %r8, %r9
+    subq %r12, %r9
     movq %rax, (%rsi, %r9, 8)
 
     # fall through into preprocess_loops_next
 
 preprocess_loops_next:
-    incq  %rax
-    decq  %rdi
-    testq %rdi, %rdi
+    incq   %rax
+    movq (%rax), %rbx
+    testb   %bl, %bl
     jnz preprocess_loops
 
 # *** INTERPRET BRAINFUCK CODE ***
 
-    movq     (%rbp), %r11 # pc
-    #movq   -8(%rbp), %r12 # program len
-    movq  -16(%rbp), %r13 # input str
-    leaq  -24(%rbp), %r14 # registers
-    leaq -124(%rbp), %r15 # loop mapping
+    movq   -8(%rbp), %r11 # pc
+    movq  -16(%rbp), %r15 # loop mapping
+    movq  -24(%rbp), %r13 # input str
+    leaq -124(%rbp), %r14 # registers
 
 interpret_instruction:
     mov (%r11), %rax
@@ -182,32 +188,32 @@ val_dec:
 cond_start:
     # jump if (%r14) == 0
     movq (%r14), %rax
-    testb %al, %al
+    testb   %al, %al
     jnz interpret_instruction_next
 
-    lea (%rbp), %rax
-    movq  %r11, %rdi
-    subq  %rax, %rdi           # rdi = index into loop mapping
-    movq (%r15, %rdi, 8), %r11 # set pc to cond end
+    lea -8(%rbp), %rax
+    movq    %r11, %rdi
+    subq    %rax, %rdi           # rdi = index into loop mapping
+    movq   (%r15, %rdi, 8), %r11 # set pc to cond end
 
     jmp interpret_instruction_next
 
 cond_end:
     # jump if (%r14) != 0
     movq (%r14), %rax
-    cmpb $0, %al
+    cmpb     $0, %al
     jle interpret_instruction_next
 
-    movq (%rbp), %rax
-    leaq (%r11), %rdi
-    subq   %rax, %rdi           # rdi = index into loop mapping
-    movq  (%r15, %rdi, 8), %r11 # set pc to cond start
+    movq -8(%rbp), %rax
+    leaq   (%r11), %rdi
+    subq     %rax, %rdi           # rdi = index into loop mapping
+    movq    (%r15, %rdi, 8), %r11 # set pc to cond start
 
     jmp interpret_instruction_next
 
 io_in:
     movq (%r13), %rax
-    cmpb $0, %al
+    cmpb     $0, %al
     jg io_in_set
 
     movb $-1, (%r14)
@@ -221,6 +227,7 @@ io_in_set:
 
 io_out:
     pushq %r11
+
     # write(stdout, register, count=1)
     movq   $1, %rax
     movq   $1, %rdi
