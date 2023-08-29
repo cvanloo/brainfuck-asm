@@ -78,21 +78,25 @@ read_input_end:
 
 # *** PRE-PROCESS LOOPS ***
 
-    # stack space needed:   program len for loop mapping
+    # stack space needed:   program len * 8 for loop mapping
     #                     + program len / 2 * 8 for temporary loop stack
-    movq %r13, %rax
-    shlq   $2, %rax # / 2 * 8 <=> * 4
-    addq %r13, %rax
-    subq %rax, %rsp
-    # rbp-124     = loop mapping
-    # rbp-124-r13 = loop stack
+    #   multiply by 8 because *one* pointer is 8 bytes!
+    movq %r13, %r8
+    shlq   $3, %r8 # r8 = program len * 8
+
+    movq %r8, %rax
+    shrq  $1, %rax # / 2
+    addq %r8, %rax
+
+    # rbp-124       = loop mapping
+    # rbp-124-r13*8 = loop stack
 
     movq %r12, %rax # rax = ptr to current input char
     movq %r13, %rdi # rdi = number of iterations left
 
     leaq -124(%rbp), %rdx
     movq       %rdx, %rsi # rsi = ptr to loop mapping
-    subq       %r13, %rdx # rdx = ptr to top of loop stack
+    subq        %r8, %rdx # rdx = ptr to top of loop stack
 
 preprocess_loops:
     movq (%rax), %r8
@@ -114,16 +118,14 @@ create_loop_mapping:
                      # rax = address of loop end
 
     # map end -> start
-    movq  %rax, %r9
-    subq  %r12, %r9 # r9 = index key for loop mapping
-    addq  %rsi, %r9 # index into loop map
-    movq   %r8, (%r9) # store mapping
+    movq %rax, %r9
+    subq %r12, %r9 # r9 = index key for loop mapping
+    movq  %r8, (%rsi, %r9, 8)
 
     # map start -> end
     movq   %r8, %r9
     subq  %r12, %r9
-    addq  %rsi, %r9
-    movq  %rax, (%r9)
+    movq %rax, (%rsi, %r9, 8)
 
     # fall through into preprocess_loops_next
 
@@ -186,7 +188,7 @@ cond_start:
     lea (%rbp), %rax
     movq  %r11, %rdi
     subq  %rax, %rdi           # rdi = index into loop mapping
-    movq (%r15, %rdi, 1), %r11 # set pc to cond end
+    movq (%r15, %rdi, 8), %r11 # set pc to cond end
 
     jmp interpret_instruction_next
 
@@ -199,7 +201,7 @@ cond_end:
     movq (%rbp), %rax
     leaq (%r11), %rdi
     subq   %rax, %rdi           # rdi = index into loop mapping
-    movq  (%r15, %rdi, 1), %r11 # set pc to cond start
+    movq  (%r15, %rdi, 8), %r11 # set pc to cond start
 
     jmp interpret_instruction_next
 
