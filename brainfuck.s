@@ -85,7 +85,6 @@ read_input_end:
 
 preprocess_loops:
     movq (%rax), %r8
-    movzx  %r8b, %r8
     cmpb    $'[, %r8b # $'[ = 0x5B
     je push_loop_start
     cmpb    $'], %r8b # $'] = 0x5D
