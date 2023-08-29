@@ -189,7 +189,7 @@ cond_start:
     # jump if (%r14) == 0
     movq (%r14), %rax
     testb   %al, %al
-    jnz interpret_instruction_next
+    jne interpret_instruction_next
 
     lea -8(%rbp), %rax
     movq    %r11, %rdi
@@ -201,8 +201,8 @@ cond_start:
 cond_end:
     # jump if (%r14) != 0
     movq (%r14), %rax
-    cmpb     $0, %al
-    jle interpret_instruction_next
+    testb   %al, %al
+    je interpret_instruction_next
 
     movq -8(%rbp), %rax
     leaq   (%r11), %rdi
@@ -213,8 +213,8 @@ cond_end:
 
 io_in:
     movq (%r13), %rax
-    cmpb     $0, %al
-    jg io_in_set
+    testb   %al, %al
+    jnz io_in_set
 
     movb $-1, (%r14)
     jmp interpret_instruction_next
