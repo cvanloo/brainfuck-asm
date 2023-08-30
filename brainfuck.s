@@ -19,6 +19,34 @@ _start:
 
     movq %rsi, -24(%rbp) # save pointer to user input on stack
 
+# *** IS STDIN BEING REDIRECTED? ***
+
+    # 64-bit: types are aligned according to their size -- a 4 byte type must
+    # be aligned to a 4-byte boundary.
+    # struct termios
+    #   TYPE          MEMBER    DESCRIPTION         SIZE % ALIGNMENT = (preceding) PADDING
+    #   unsigned int  c_iflag;  input mode flags       4 % 4 = 0
+    #   unsigned int  c_oflag;  output mode flags      4 % 4 = 0
+    #   unsigned int  c_cflag;  control mode flags     4 % 4 = 0
+    #   unsigned int  c_lflag;  local mode flags       4 % 4 = 0
+    #   unsigned char c_line;   line discipline        1 % 1 = 0
+    #   unsigned char c_cc[32]; control characters  32*1 % 1 = 0
+    #                                            total 49 bytes (0 padding)
+
+    subq $49, %rsp
+
+    # ioctl(stdin, cmd=TCGETS, struct termios *)
+    movq     $16, %rax
+    movq      $0, %rdi
+    movq $0x5401, %rsi # TCGETS
+    movq    %rsp, %rdx
+    syscall
+
+    addq $49, %rsp
+
+    testq %rax, %rax
+    jnz read_input     # non-zero return code means it's not a tty
+
 # *** ASK FOR USER INPUT ***
 
     # write(stdout, "Input program > ", len(...))
@@ -30,6 +58,7 @@ _start:
 
 # *** READ USER INPUT ***
 
+read_input:
     # mmap(addr=0, len=input_len, prot=READ|WRITE, flags=PRIVATE|ANONYMOUS, fildes=-1, off=0)
     movq          $9, %rax
     movq          $0, %rdi
@@ -43,7 +72,7 @@ _start:
     movq %rax, %r12 # r12 = ptr to input buf
     xorq %r13, %r13 # r13 = amount of bytes read
 
-read_input:
+read_input_loop:
     # read(stdin, buf, count=input len)
     xorq        %rax, %rax
     xorq        %rdi, %rdi
@@ -67,7 +96,7 @@ read_input:
     syscall
 
     movq %rax, %r12 # buf may have been moved to different address
-    jmp read_input
+    jmp read_input_loop
 
 read_input_end:
 
