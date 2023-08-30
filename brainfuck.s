@@ -215,7 +215,7 @@ cond_start:
     # jump if (%r14) == 0
     movq (%r14), %rax
     testb   %al, %al
-    jne interpret_instruction_next
+    jnz interpret_instruction_next
 
     movq -8(%rbp), %rax
     leaq   (%r11), %rdi
@@ -228,7 +228,7 @@ cond_end:
     # jump if (%r14) != 0
     movq (%r14), %rax
     testb   %al, %al
-    je interpret_instruction_next
+    jz interpret_instruction_next
 
     movq -8(%rbp), %rax
     leaq   (%r11), %rdi
